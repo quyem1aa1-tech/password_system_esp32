@@ -1,0 +1,32 @@
+name: Check ESP32 Build
+
+# Khi nào con bot được kích hoạt?
+on:
+  push:
+    branches: [ main ]          # Khi có ai push vào main
+  pull_request:
+    branches: [ main ]          # Khi có ai tạo Pull Request xin gộp vào main
+
+jobs:
+  build:
+    name: Test Compile with PlatformIO
+    runs-on: ubuntu-latest      # Dùng máy ảo Ubuntu của GitHub
+
+    steps:
+      # Bước 1: Kéo toàn bộ code của bạn về máy ảo
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # Bước 2: Cài môi trường Python (PlatformIO chạy trên nền Python)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Bước 3: Cài đặt công cụ PlatformIO vào máy ảo
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      # Bước 4: Chạy lệnh biên dịch kiểm tra lỗi
+      - name: Run Build (pio run)
+        run: pio run

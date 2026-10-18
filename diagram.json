@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "author": "Vinh",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-s3-devkitc-1",
+      "id": "esp",
+      "top": 124.62,
+      "left": 100.57,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-membrane-keypad",
+      "id": "keypad",
+      "top": -260,
+      "left": -220,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd",
+      "top": 457.6,
+      "left": -253.6,
+      "attrs": {
+        "pins": "i2c"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay",
+      "top": 451.4,
+      "left": 124.8,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": 242.4,
+      "left": 433.8,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led-green",
+      "top": 180,
+      "left": 320,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led-red",
+      "top": 217.2,
+      "left": 349.4,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 234.35,
+      "left": 240,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 282.35,
+      "left": 249.6,
+      "attrs": {
+        "value": "220"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "keypad:R1",
+      "esp:4",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:R2",
+      "esp:5",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:R3",
+      "esp:6",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:R4",
+      "esp:7",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:C1",
+      "esp:15",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:C2",
+      "esp:16",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:C3",
+      "esp:17",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "keypad:C4",
+      "esp:18",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "lcd:GND",
+      "esp:GND.1",
+      "black",
+      [
+        "v-86.4",
+        "h316.28"
+      ]
+    ],
+    [
+      "lcd:VCC",
+      "esp:5V",
+      "magenta",
+      [
+        "h-19.2",
+        "v-86.3",
+        "h364.8",
+        "v-67.2"
+      ]
+    ],
+    [
+      "lcd:SDA",
+      "esp:8",
+      "blue",
+      [
+        "h-28.8",
+        "v-76.6",
+        "h316.8",
+        "v-177.42"
+      ]
+    ],
+    [
+      "lcd:SCL",
+      "esp:9",
+      "white",
+      [
+        "h-38.4",
+        "v-76.5",
+        "h345.6",
+        "v-158.22"
+      ]
+    ],
+    [
+      "relay:VCC",
+      "esp:5V",
+      "red",
+      [
+        "h-38.4",
+        "v-134.4",
+        "h19.25"
+      ]
+    ],
+    [
+      "relay:GND",
+      "esp:GND.2",
+      "magenta",
+      [
+        "h-48",
+        "v-317.2",
+        "h114.63"
+      ]
+    ],
+    [
+      "relay:IN",
+      "esp:10",
+      "gold",
+      [
+        "h-57.6",
+        "v-196.82"
+      ]
+    ],
+    [
+      "buzzer:2",
+      "esp:11",
+      "purple",
+      [
+        "v19.2",
+        "h-317.2",
+        "v-43.02"
+      ]
+    ],
+    [
+      "buzzer:1",
+      "esp:GND.2",
+      "black",
+      [
+        "v57.6",
+        "h-22.2",
+        "v-65.6",
+        "h-48",
+        "v-201.6",
+        "h-141.57"
+      ]
+    ],
+    [
+      "esp:47",
+      "r1:1",
+      "green",
+      [
+        "h0"
+      ]
+    ],
+    [
+      "r1:2",
+      "led-green:A",
+      "green",
+      [
+        "h0"
+      ]
+    ],
+    [
+      "led-green:C",
+      "esp:GND.2",
+      "#8f4814",
+      [
+        "h-123.8",
+        "v-73.02"
+      ]
+    ],
+    [
+      "esp:21",
+      "r2:1",
+      "green",
+      [
+        "h0"
+      ]
+    ],
+    [
+      "r2:2",
+      "led-red:A",
+      "green",
+      [
+        "h0"
+      ]
+    ],
+    [
+      "led-red:C",
+      "esp:GND.2",
+      "red",
+      [
+        "h-134",
+        "v-110.22"
+      ]
+    ]
+  ],
+  "dependencies": {}
+}

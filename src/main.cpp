@@ -1,461 +1,209 @@
-  #include <Arduino.h>
-  #include <Wire.h>
-  #include <LiquidCrystal_I2C.h>
-  #include <Keypad.h>
-  #include <Preferences.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
+#include <Preferences.h>
 
-  #define I2C_SDA_PIN 8
-  #define I2C_SCL_PIN 9
+Preferences preferences;
 
-  #define RELAY_PIN 10
-  #define BUZZER_PIN 11
-  #define GREEN_LED_PIN 47
-  #define RED_LED_PIN 21
+// ==========================================
+// PIN DEFINITIONS (Đã cập nhật theo yêu cầu)
+// ==========================================
+#define SDA_PIN 8
+#define SCL_PIN 9
+#define RELAY_PIN 10
+#define BUZZER_PIN 47   // Buzzer đổi sang GPIO 47
+#define LED_GREEN 20    // LED Green đổi sang GPIO 20
+#define LED_RED 19      // LED Red đổi sang GPIO 19
 
-  #define RELAY_ON HIGH
-  #define RELAY_OFF LOW
+// ==========================================
+// KEYPAD CONFIGURATION
+// ==========================================
+const byte ROWS = 4;
+const byte COLS = 4;
+char keys[ROWS][COLS] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
+byte rowPins[ROWS] = {4, 5, 6, 7};
+byte colPins[COLS] = {15, 16, 17, 18};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-  const unsigned long PAUSE_3S_MS = 3000;
-  const unsigned long LOCKOUT_5S_MS = 5000;
-  const unsigned long RELAY_UNLOCK_MS = 5000;
-  const unsigned long DEBOUNCE_TIME_MS = 60;
+// ==========================================
+// LCD CONFIGURATION
+// ==========================================
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-  const int PASSWORD_LENGTH = 4;
-  const int MAX_TRIES = 3;
+// ==========================================
+// SYSTEM VARIABLES & STATES
+// ==========================================
+String currentInput = "";
+String savedPassword = "1234";
+int failedAttempts = 0;
 
-  LiquidCrystal_I2C lcd(0x27, 16, 2);
-  Preferences preferences;
+enum SystemState {
+  STATE_IDLE,
+  RESET_AUTH,
+  RESET_NEW
+};
+SystemState state = STATE_IDLE;
 
-  const byte ROWS = 4;
-  const byte COLS = 4;
+// Khai báo trước các hàm
+void refreshScreen();
+void processInput();
+void resetToIdle();
 
-  char keys[ROWS][COLS] = {
-      {'1', '2', '3', 'A'},
-      {'4', '5', '6', 'B'},
-      {'7', '8', '9', 'C'},
-      {'*', '0', '#', 'D'}};
+// ==========================================
+// MAIN SETUP
+// ==========================================
+void setup() {
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
 
-  byte rowPins[ROWS] = {4, 5, 6, 7};
-  byte colPins[COLS] = {15, 16, 17, 18};
+  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_RED, LOW);
 
-  Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  lcd.init();
+  lcd.backlight();
 
-  enum SystemState
-  {
-    STATE_STANDBY,
-    STATE_INPUTTING,
-    STATE_CHECKING,
-    STATE_PAUSE_3S,
-    STATE_UNLOCKED,
-    STATE_LOCKED_OUT_5S,
-    STATE_VERIFY_OLD,
-    STATE_SET_PASSWORD
-  };
+  // Đọc mật khẩu đã lưu từ bộ nhớ Flash của ESP32
+  preferences.begin("lock_sys", false);
+  savedPassword = preferences.getString("password", "1234");
 
-  SystemState system_state = STATE_STANDBY;
-  SystemState next_state = STATE_STANDBY;
+  lcd.clear();
+  lcd.print("System Ready");
+  delay(1000);
+  resetToIdle();
+}
 
-  char saved_PIN[PASSWORD_LENGTH + 1] = "1234";
-  char entered_PIN[PASSWORD_LENGTH + 1] = "";
-  int digit_count = 0;
-  int failed_tries = 0;
+// ==========================================
+// MAIN LOOP
+// ==========================================
+void loop() {
+  char key = keypad.getKey();
 
-  unsigned long timer_start_ms = 0;
-  int last_shown_sec = -1;
-  String pause_message = "";
-
-  void beep(int ms = 60)
-  {
-    digitalWrite(BUZZER_PIN, HIGH);
-    delay(ms);
-    digitalWrite(BUZZER_PIN, LOW);
-  }
-
-  void loadPassword()
-  {
-    preferences.begin("security_app", false);
-    bool hasPassword = preferences.getBool("initialized", false);
-    if (hasPassword)
-    {
-      String pin = preferences.getString("pin", "1234");
-      pin.toCharArray(saved_PIN, PASSWORD_LENGTH + 1);
-      system_state = STATE_STANDBY;
-    }
-    else
-    {
-      system_state = STATE_SET_PASSWORD;
-    }
-  }
-
-  void savePassword(const char *newPin)
-  {
-    strncpy(saved_PIN, newPin, PASSWORD_LENGTH);
-    saved_PIN[PASSWORD_LENGTH] = '\0';
-    preferences.putString("pin", saved_PIN);
-    preferences.putBool("initialized", true);
-  }
-
-  void clearTypedInput()
-  {
-    digit_count = 0;
-    for (int i = 0; i <= PASSWORD_LENGTH; i++)
-    {
-      entered_PIN[i] = '\0';
-    }
-  }
-
-  void flushKeypad()
-  {
-    while (keypad.getKey() != NO_KEY)
-    {
-    }
-  }
-  void updateLCDScreen()
-  {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    if (system_state == STATE_SET_PASSWORD)
-    {
-      lcd.print("SET 4-DIGIT PIN:");
-    }
-    else if (system_state == STATE_VERIFY_OLD)
-    {
-      lcd.print("ENTER OLD PIN:");
-    }
-    else
-    {
-      lcd.print("ENTER PASSWORD");
-    }
-
-    lcd.setCursor(0, 1);
-    lcd.print("PIN: [");
-    for (int i = 0; i < PASSWORD_LENGTH; i++)
-    {
-      if (i < digit_count)
-      {
-        lcd.print(entered_PIN[i]);
-      }
-      else
-      {
-        lcd.print("_");
-      }
-    }
-    lcd.print("]");
-  }
-
-  void start3SecondPause(const char *title, SystemState targetState)
-  {
-    pause_message = String(title);
-    next_state = targetState;
-    timer_start_ms = millis();
-    last_shown_sec = -1;
-    system_state = STATE_PAUSE_3S;
-  }
-
-  void handleKeypadInput()
-  {
-    char key = keypad.getKey();
-    if (key == NO_KEY)
+  if (key) {
+    // Xóa ký tự khi bấm '*'
+    if (key == '*' && currentInput.length() > 0) {
+      currentInput.remove(currentInput.length() - 1);
+      refreshScreen();
       return;
-    if (key >= '0' && key <= '9')
-    {
-      if (system_state == STATE_STANDBY)
-      {
-        system_state = STATE_INPUTTING;
-      }
-      if (digit_count < PASSWORD_LENGTH)
-      {
-        entered_PIN[digit_count] = key;
-        digit_count++;
-        entered_PIN[digit_count] = '\0';
-        beep(50);
-        updateLCDScreen();
-      }
-      else
-      {
-        beep(120);
-      }
     }
-    else if (key == 'C')
-    {
-      if (digit_count > 0)
-      {
-        digit_count--;
-        entered_PIN[digit_count] = '\0';
-        beep(40);
-        if (digit_count == 0 && system_state == STATE_INPUTTING)
-        {
-          system_state = STATE_STANDBY;
-        }
-        updateLCDScreen();
+
+    // Nhập số (0-9)
+    if (key >= '0' && key <= '9') {
+      if (currentInput.length() < 4) {
+        currentInput += key;
+        refreshScreen();
       }
-      else
-      {
-        beep(30);
-      }
-    }
-    else if (key == '*')
-    {
-      beep(70);
-      clearTypedInput();
-      if (system_state == STATE_VERIFY_OLD)
-      {
-        system_state = STATE_STANDBY;
-      }
-      updateLCDScreen();
-    }
-    else if (key == '#')
-    {
-      if (digit_count < PASSWORD_LENGTH)
-      {
-        beep(150);
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("NEED 4 DIGITS!");
-        delay(1000);
-        updateLCDScreen();
-        return;
-      }
-      beep(60);
-      if (system_state == STATE_SET_PASSWORD)
-      {
-        savePassword(entered_PIN);
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("PASSWORD SAVED!");
-        lcd.setCursor(0, 1);
-        lcd.print("NEW PIN: ");
-        lcd.print(saved_PIN);
-        beep(100);
-        delay(1500);
-        clearTypedInput();
-        start3SecondPause("PAUSE 3S...", STATE_STANDBY);
-      }
-      else if (system_state == STATE_VERIFY_OLD)
-      {
-        if (strcmp(entered_PIN, saved_PIN) == 0)
-        {
-          beep(100);
-          failed_tries = 0;
-          clearTypedInput();
-          system_state = STATE_SET_PASSWORD;
-          updateLCDScreen();
-        }
-        else
-        {
-          system_state = STATE_CHECKING;
-        }
-      }
-      else
-      {
-        system_state = STATE_CHECKING;
-      }
-    }
-    else if (key == 'A' || key == 'B')
-    {
-      if (system_state == STATE_STANDBY || system_state == STATE_INPUTTING)
-      {
-        beep(70);
-        clearTypedInput();
-        system_state = STATE_VERIFY_OLD;
-        updateLCDScreen();
+
+      // Tự động kiểm tra khi đủ 4 chữ số
+      if (currentInput.length() == 4) {
+        processInput();
       }
     }
 
-    else if (key == 'D')
-    {
-      beep(300);
-      delay(100);
-      beep(300);
-
+    // Bấm 'A' ở màn hình chờ để đổi mật khẩu
+    if (key == 'A' && state == STATE_IDLE) {
+      state = RESET_AUTH;
+      currentInput = "";
       lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("   DOORBELL !   ");
+      lcd.print("Enter Old PIN:");
       lcd.setCursor(0, 1);
-      lcd.print(" Please wait... ");
-
-      delay(1500);
-
-      updateLCDScreen();
     }
   }
+}
 
-  void checkSubmittedPassword()
-  {
-    if (strcmp(entered_PIN, saved_PIN) == 0)
-    {
-      failed_tries = 0;
-      clearTypedInput();
-      digitalWrite(RED_LED_PIN, LOW);
-      digitalWrite(GREEN_LED_PIN, HIGH);
-      digitalWrite(RELAY_PIN, RELAY_ON);
-      beep(100);
-      delay(80);
-      beep(150);
-      timer_start_ms = millis();
-      last_shown_sec = -1;
-      system_state = STATE_UNLOCKED;
-    }
-    else
-    {
-      failed_tries++;
-      clearTypedInput();
-      digitalWrite(GREEN_LED_PIN, LOW);
-      digitalWrite(RED_LED_PIN, HIGH);
-      int triesLeft = MAX_TRIES - failed_tries;
-      if (triesLeft > 0)
-      {
-        for (int i = 0; i < 2; i++)
-        {
-          beep(120);
-          delay(80);
-        }
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("WRONG PASSWORD!");
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+void refreshScreen() {
+  lcd.setCursor(0, 1);
+  lcd.print("                ");
+  lcd.setCursor(0, 1);
+  for (int i = 0; i < currentInput.length(); i++) {
+    lcd.print("*");
+  }
+}
+
+void processInput() {
+  // Trạng thái chờ nhập PIN
+  if (state == STATE_IDLE) {
+    if (currentInput == savedPassword) {
+      failedAttempts = 0;
+      lcd.clear();
+      lcd.print("Access Granted");
+      digitalWrite(RELAY_PIN, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
+
+      delay(3000); // Mở cửa trong 3 giây
+
+      digitalWrite(RELAY_PIN, LOW);
+      digitalWrite(LED_GREEN, LOW);
+      resetToIdle();
+    } else {
+      failedAttempts++;
+      lcd.clear();
+      lcd.print("Wrong PIN!");
+      digitalWrite(LED_RED, HIGH);
+
+      if (failedAttempts >= 3) {
         lcd.setCursor(0, 1);
-        lcd.print("Tries left: ");
-        lcd.print(triesLeft);
-        delay(1200);
-        start3SecondPause("PAUSE 3 SEC...", STATE_STANDBY);
-      }
-      else
-      {
+        lcd.print("LOCKED OUT!");
         digitalWrite(BUZZER_PIN, HIGH);
-        timer_start_ms = millis();
-        last_shown_sec = -1;
-        system_state = STATE_LOCKED_OUT_5S;
+        delay(5000); // Khóa 5 giây nếu nhập sai 3 lần
+        digitalWrite(BUZZER_PIN, LOW);
+        failedAttempts = 0;
+      } else {
+        delay(3000);
       }
+      digitalWrite(LED_RED, LOW);
+      resetToIdle();
     }
   }
 
-  void runUnlockedTimer()
-  {
-    unsigned long elapsed = millis() - timer_start_ms;
-    if (elapsed >= RELAY_UNLOCK_MS)
-    {
-      digitalWrite(RELAY_PIN, RELAY_OFF);
-      digitalWrite(GREEN_LED_PIN, LOW);
-      start3SecondPause("LOCKING DOOR...", STATE_STANDBY);
-      return;
-    }
-    int secLeft = (RELAY_UNLOCK_MS - elapsed + 999) / 1000;
-    if (secLeft != last_shown_sec)
-    {
-      last_shown_sec = secLeft;
+  // Xác thực mật khẩu cũ để đổi PIN mới
+  else if (state == RESET_AUTH) {
+    if (currentInput == savedPassword) {
+      state = RESET_NEW;
+      currentInput = "";
       lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("ACCESS GRANTED!");
+      lcd.print("Enter New PIN:");
       lcd.setCursor(0, 1);
-      lcd.print("Relay ON: ");
-      lcd.print(secLeft);
-      lcd.print("s");
-    }
-  }
-
-  void run5SecondLockoutTimer()
-  {
-    unsigned long elapsed = millis() - timer_start_ms;
-    if (elapsed >= LOCKOUT_5S_MS)
-    {
-      digitalWrite(BUZZER_PIN, LOW);
-      digitalWrite(RED_LED_PIN, LOW);
-      failed_tries = 0;
-      flushKeypad();
-      start3SecondPause("PAUSE 3 SEC...", STATE_STANDBY);
-      return;
-    }
-    int secLeft = (LOCKOUT_5S_MS - elapsed + 999) / 1000;
-    if (secLeft != last_shown_sec)
-    {
-      last_shown_sec = secLeft;
+    } else {
       lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("KEYPAD LOCKED!");
-      lcd.setCursor(0, 1);
-      lcd.print("Wait: ");
-      lcd.print(secLeft);
-      lcd.print(" seconds");
+      lcd.print("Auth Failed!");
+      digitalWrite(LED_RED, HIGH);
+      delay(3000);
+      digitalWrite(LED_RED, LOW);
+      resetToIdle();
     }
   }
 
-  void run3SecondPauseTimer()
-  {
-    unsigned long elapsed = millis() - timer_start_ms;
-    if (elapsed >= PAUSE_3S_MS)
-    {
-      digitalWrite(RED_LED_PIN, LOW);
-      flushKeypad();
-      clearTypedInput();
-      system_state = next_state;
-      updateLCDScreen();
-      return;
-    }
-    int secLeft = (PAUSE_3S_MS - elapsed + 999) / 1000;
-    if (secLeft != last_shown_sec)
-    {
-      last_shown_sec = secLeft;
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(pause_message);
-      lcd.setCursor(0, 1);
-      lcd.print("Wait: ");
-      lcd.print(secLeft);
-      lcd.print("s...");
-    }
+  // Lưu mật khẩu mới vào bộ nhớ Flash vĩnh viễn
+  else if (state == RESET_NEW) {
+    savedPassword = currentInput;
+    preferences.putString("password", savedPassword);
+
+    lcd.clear();
+    lcd.print("PIN Saved!");
+    digitalWrite(LED_GREEN, HIGH);
+    delay(2000);
+    digitalWrite(LED_GREEN, LOW);
+    resetToIdle();
   }
-  void setup()
-  {
-    Serial.begin(115200);
+}
 
-    pinMode(RELAY_PIN, OUTPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
-    pinMode(GREEN_LED_PIN, OUTPUT);
-    pinMode(RED_LED_PIN, OUTPUT);
-
-    digitalWrite(RELAY_PIN, RELAY_OFF);
-    digitalWrite(BUZZER_PIN, LOW);
-    digitalWrite(GREEN_LED_PIN, LOW);
-    digitalWrite(RED_LED_PIN, LOW);
-
-    keypad.setDebounceTime(DEBOUNCE_TIME_MS);
-
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-    lcd.init();
-    lcd.backlight();
-
-    lcd.setCursor(0, 0);
-    lcd.print("SECURITY SYSTEM");
-    lcd.setCursor(0, 1);
-    lcd.print("Starting...");
-    beep(100);
-    delay(1200);
-    loadPassword();
-    clearTypedInput();
-    updateLCDScreen();
-  }
-
-  void loop()
-  {
-    switch (system_state)
-    {
-    case STATE_STANDBY:
-    case STATE_INPUTTING:
-    case STATE_VERIFY_OLD:
-    case STATE_SET_PASSWORD:
-      handleKeypadInput();
-      break;
-    case STATE_CHECKING:
-      checkSubmittedPassword();
-      break;
-    case STATE_LOCKED_OUT_5S:
-      run5SecondLockoutTimer();
-      break;
-    case STATE_PAUSE_3S:
-      run3SecondPauseTimer();
-      break;
-    case STATE_UNLOCKED:
-      runUnlockedTimer();
-      break;
-    }
-  }
+void resetToIdle() {
+  state = STATE_IDLE;
+  currentInput = "";
+  lcd.clear();
+  lcd.print("Enter PIN:");
+  lcd.setCursor(0, 1);
+}
